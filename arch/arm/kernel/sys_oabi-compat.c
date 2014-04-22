@@ -202,9 +202,9 @@ static long do_locks(unsigned int fd, unsigned int cmd,
 	long ret;
 
 	switch (cmd) {
-	case F_GETLKP:
-	case F_SETLKP:
-	case F_SETLKPW:
+	case F_OFD_GETLK:
+	case F_OFD_SETLK:
+	case F_OFD_SETLKW:
 	case F_GETLK64:
 	case F_SETLK64:
 	case F_SETLKW64:
