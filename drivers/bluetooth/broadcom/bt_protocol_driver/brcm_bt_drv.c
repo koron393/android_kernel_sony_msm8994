@@ -16,7 +16,6 @@
  *  Copyright (C) 2009-2014 Broadcom Corporation
  */
 
-
 /******************************************************************************
 *      Module Name : Bluetooth Protocol Driver
 *
@@ -69,7 +68,6 @@ static int is_print_reg_error = 1;
 
 /* timers for ldisc to send callback on register complete */
 static unsigned long jiffi1, jiffi2;
-
 
 /*****************************************************************************
 **
@@ -216,7 +214,6 @@ static int brcm_bt_drv_open(struct inode *inode, struct file *filp)
 
 }
 
-
 /*****************************************************************************
 **
 ** Function - brcm_bt_drv_prepare
@@ -252,6 +249,19 @@ static void brcm_bt_drv_prepare(struct brcm_bt_dev* bt_dev)
 
 }
 
+/*****************************************************************************
+**
+** Function - brcm_bt_drv_reset_queue
+**
+** Description - Performs a reset of BT packet queues.
+**
+*****************************************************************************/
+static int brcm_bt_drv_reset_queue(struct sk_buff_head *list)
+{
+    list->qlen = 0;
+    list->next = list;
+    list->prev = list;
+}
 
 /*****************************************************************************
 **
@@ -283,15 +293,17 @@ static int brcm_bt_drv_close(struct inode *i, struct file *f)
         }
     }
 
-    skb_queue_purge(&bt_dev_p->tx_q);
-    skb_queue_purge(&bt_dev_p->rx_q);
+    /* Just reset the list pointers, as freeing is done by closing the base
+     * serial node (e.g., the msm one). The actual base problem is that a shared
+     * sk buffer should be used... */
+    brcm_bt_drv_reset_queue(&bt_dev_p->tx_q);
+    brcm_bt_drv_reset_queue(&bt_dev_p->rx_q);
     atomic_set(&bt_dev_p->tx_cnt, 0);
     bt_dev_p->st_write = NULL;
 
     BT_DRV_DBG(V4L2_DBG_CLOSE, "End ret=%d", err);
     return err;
 }
-
 
 /*****************************************************************************
 **
@@ -457,7 +469,6 @@ err:
     return ret;
 }
 
-
 /*****************************************************************************
 **
 ** Function - brcm_bt_drv_poll
@@ -494,8 +505,6 @@ static unsigned int brcm_bt_drv_poll(struct file *filp,
     BT_DRV_DBG(V4L2_DBG_RX, "mask=%d", mask);
     return mask;
 }
-
-
 
 /*****************************************************************************
 **
@@ -592,7 +601,6 @@ static void brcm_bt_st_registration_completion_cb(void *priv_data,
     set_bit(BT_ST_REGISTERED, &bt_dev_p->flags);
     BT_DRV_DBG(V4L2_DBG_OPEN, "registration to ldisc cb received");
 }
-
 
 /*****************************************************************************
 **
