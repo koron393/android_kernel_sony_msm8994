@@ -1,7 +1,7 @@
 /*
  * BCMSDH Function Driver for the native SDIO/MMC driver in the Linux Kernel
  *
- * Copyright (C) 1999-2017, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -104,10 +104,10 @@ static int sdioh_probe(struct sdio_func *func)
 	osl_t *osh = NULL;
 	sdioh_info_t *sdioh = NULL;
 
-	sd_err(("bus num (host idx)=%d, slot num (rca)=%d\n", host_idx, rca));
+	sd_info(("bus num (host idx)=%d, slot num (rca)=%d\n", host_idx, rca));
 	adapter = dhd_wifi_platform_get_adapter(SDIO_BUS, host_idx, rca);
 	if (adapter  != NULL)
-		sd_err(("found adapter info '%s'\n", adapter->name));
+		sd_info(("found adapter info '%s'\n", adapter->name));
 	else
 		sd_err(("can't find adapter info for this chip\n"));
 
@@ -169,7 +169,7 @@ static int bcmsdh_sdmmc_probe(struct sdio_func *func,
 	if (func == NULL)
 		return -EINVAL;
 
-	sd_err(("bcmsdh_sdmmc: %s Enter\n", __FUNCTION__));
+	sd_trace(("bcmsdh_sdmmc: %s Enter\n", __FUNCTION__));
 	sd_info(("sdio_bcmsdh: func->class=%x\n", func->class));
 	sd_info(("sdio_vendor: 0x%04x\n", func->vendor));
 	sd_info(("sdio_device: 0x%04x\n", func->device));
@@ -201,17 +201,11 @@ static void bcmsdh_sdmmc_remove(struct sdio_func *func)
 
 /* devices we support, null terminated */
 static const struct sdio_device_id bcmsdh_sdmmc_ids[] = {
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_DEFAULT) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4325_SDGWB) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4325) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4329) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4319) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4330) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4334) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4324) },
-	{ SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_43239) },
-	{ SDIO_DEVICE_CLASS(SDIO_CLASS_NONE)		},
-	{ /* end: all zeroes */				},
+	{ 	.class	= SDIO_CLASS_NONE,
+		.vendor	= SDIO_VENDOR_ID_BROADCOM,
+		.device	= SDIO_ANY_ID
+	},
+	{ /* end: all zeroes */                         },
 };
 
 MODULE_DEVICE_TABLE(sdio, bcmsdh_sdmmc_ids);
@@ -224,7 +218,7 @@ static int bcmsdh_sdmmc_suspend(struct device *pdev)
 	struct sdio_func *func = dev_to_sdio_func(pdev);
 	mmc_pm_flag_t sdio_flags;
 
-	sd_err(("%s Enter\n", __FUNCTION__));
+	sd_trace(("%s Enter\n", __FUNCTION__));
 	if (func->num != 2)
 		return 0;
 
@@ -259,7 +253,7 @@ static int bcmsdh_sdmmc_resume(struct device *pdev)
 	sdioh_info_t *sdioh;
 	struct sdio_func *func = dev_to_sdio_func(pdev);
 
-	sd_err(("%s Enter\n", __FUNCTION__));
+	sd_trace(("%s Enter\n", __FUNCTION__));
 	if (func->num != 2)
 		return 0;
 

@@ -1,7 +1,7 @@
 /*
  * BCMSDH Function Driver for the native SDIO/MMC driver in the Linux Kernel
  *
- * Copyright (C) 1999-2017, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -75,7 +75,7 @@ uint sd_divisor = 2;			/* Default 48MHz/2 = 24MHz */
 uint sd_power = 1;		/* Default to SD Slot powered ON */
 uint sd_clock = 1;		/* Default to SD Clock turned ON */
 uint sd_hiok = FALSE;	/* Don't use hi-speed mode by default */
-uint sd_msglevel = 0x01;
+uint sd_msglevel = SDH_ERROR_VAL;
 uint sd_use_dma = TRUE;
 
 #ifndef CUSTOM_RXCHAIN
@@ -468,7 +468,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 	switch (actionid) {
 	case IOV_GVAL(IOV_MSGLEVEL):
 		int_val = (int32)sd_msglevel;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_MSGLEVEL):
@@ -477,7 +477,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_BLOCKMODE):
 		int_val = (int32)si->sd_blockmode;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_BLOCKMODE):
@@ -491,7 +491,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 			break;
 		}
 		int_val = (int32)si->client_block_size[int_val];
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_BLOCKSIZE):
@@ -527,12 +527,12 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_RXCHAIN):
 		int_val = (int32)si->use_rxchain;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_GVAL(IOV_DMA):
 		int_val = (int32)si->sd_use_dma;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_DMA):
@@ -541,7 +541,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_USEINTS):
 		int_val = (int32)si->use_client_ints;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_USEINTS):
@@ -555,7 +555,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_DIVISOR):
 		int_val = (uint32)sd_divisor;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_DIVISOR):
@@ -564,7 +564,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_POWER):
 		int_val = (uint32)sd_power;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_POWER):
@@ -573,7 +573,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_CLOCK):
 		int_val = (uint32)sd_clock;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_CLOCK):
@@ -582,7 +582,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_SDMODE):
 		int_val = (uint32)sd_sdmode;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_SDMODE):
@@ -591,7 +591,7 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_HISPEED):
 		int_val = (uint32)sd_hiok;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_SVAL(IOV_HISPEED):
@@ -600,12 +600,12 @@ sdioh_iovar_op(sdioh_info_t *si, const char *name,
 
 	case IOV_GVAL(IOV_NUMINTS):
 		int_val = (int32)si->intrcount;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_GVAL(IOV_NUMLOCALINTS):
 		int_val = (int32)0;
-		bcopy(&int_val, arg, val_size);
+		bcopy(&int_val, arg, sizeof(int_val));
 		break;
 
 	case IOV_GVAL(IOV_HOSTREG):
@@ -918,6 +918,11 @@ sdioh_request_word(sdioh_info_t *sd, uint cmd_type, uint rw, uint func, uint add
 	sdio_release_host(sd->func[func]);
 
 	if (err_ret) {
+		int abort_err;
+
+		sd_err(("bcmsdh_sdmmc: Failed to %s word, Err: %d\n",
+			rw ? "Write" : "Read", err_ret));
+		WARN_ON_ONCE(1);
 #if defined(MMC_SDIO_ABORT)
 		/* Any error on CMD53 transaction should abort that function using function 0. */
 		while (sdio_abort_retry--) {
@@ -929,18 +934,15 @@ sdioh_request_word(sdioh_info_t *sd, uint cmd_type, uint rw, uint func, uint add
 				 * As of this time, this is temporaray one
 				 */
 				sdio_writeb(sd->func[0],
-					func, SDIOD_CCCR_IOABORT, &err_ret);
+					func, SDIOD_CCCR_IOABORT, &abort_err);
 				sdio_release_host(sd->func[0]);
 			}
-			if (!err_ret)
+			if (!abort_err)
 				break;
 		}
-		if (err_ret)
+		if (abort_err)
+			sd_err(("bcmsdh_sdmmc: Failed to send abort: %d\n", abort_err));
 #endif /* MMC_SDIO_ABORT */
-		{
-			sd_err(("bcmsdh_sdmmc: Failed to %s word, Err: 0x%08x",
-				rw ? "Write" : "Read", err_ret));
-		}
 	}
 
 	return ((err_ret == 0) ? SDIOH_API_RC_SUCCESS : SDIOH_API_RC_FAIL);
@@ -1101,6 +1103,7 @@ sdioh_buffer_tofrom_bus(sdioh_info_t *sd, uint fix_inc, uint write, uint func,
 
 	sdio_release_host(sd->func[func]);
 
+	WARN_ON_ONCE(err_ret);
 	if (err_ret)
 		sd_err(("%s: %s FAILED %p, addr=0x%05x, pkt_len=%d, ERR=%d\n", __FUNCTION__,
 		       (write) ? "TX" : "RX", buf, addr, len, err_ret));
@@ -1155,7 +1158,7 @@ sdioh_request_buffer(sdioh_info_t *sd, uint pio_dma, uint fix_inc, uint write, u
 	if (((ulong)buffer & DMA_ALIGN_MASK) == 0 && (buf_len & DMA_ALIGN_MASK) == 0)
 		return sdioh_buffer_tofrom_bus(sd, fix_inc, write, func, addr, buffer, buf_len);
 
-	sd_err(("%s: [%d] doing memory copy buf=%p, len=%d\n",
+	sd_info(("%s: [%d] doing memory copy buf=%p, len=%d\n",
 		__FUNCTION__, write, buffer, buf_len));
 
 	/* otherwise, a memory copy is needed as the input buffer is not aligned */
@@ -1453,4 +1456,17 @@ SDIOH_API_RC
 sdioh_gpio_init(sdioh_info_t *sd)
 {
 	return SDIOH_API_RC_FAIL;
+}
+
+void
+sdioh_retune_hold(sdioh_info_t *sd, bool hold)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0))
+	sdio_claim_host(sd->func[0]);
+	if (hold)
+		sdio_retune_hold_now(sd->func[0]);
+	else
+		sdio_retune_release(sd->func[0]);
+	sdio_release_host(sd->func[0]);
+#endif
 }
