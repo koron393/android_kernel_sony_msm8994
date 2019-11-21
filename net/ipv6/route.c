@@ -1672,6 +1672,8 @@ static int ip6_route_del(struct fib6_config *cfg)
 				continue;
 			if (cfg->fc_metric && cfg->fc_metric != rt->rt6i_metric)
 				continue;
+			if (cfg->fc_protocol && cfg->fc_protocol != rt->rt6i_protocol)
+				continue;
 			dst_hold(&rt->dst);
 			read_unlock_bh(&table->tb6_lock);
 
@@ -2240,12 +2242,14 @@ void rt6_mtu_change(struct net_device *dev, unsigned int mtu)
 
 static const struct nla_policy rtm_ipv6_policy[RTA_MAX+1] = {
 	[RTA_GATEWAY]           = { .len = sizeof(struct in6_addr) },
+	[RTA_PREFSRC]		= { .len = sizeof(struct in6_addr) },
 	[RTA_OIF]               = { .type = NLA_U32 },
 	[RTA_IIF]		= { .type = NLA_U32 },
 	[RTA_PRIORITY]          = { .type = NLA_U32 },
 	[RTA_METRICS]           = { .type = NLA_NESTED },
 	[RTA_MULTIPATH]		= { .len = sizeof(struct rtnexthop) },
 	[RTA_UID]		= { .type = NLA_U32 },
+	[RTA_TABLE]		= { .type = NLA_U32 },
 };
 
 static int rtm_to_fib6_config(struct sk_buff *skb, struct nlmsghdr *nlh,
@@ -2523,7 +2527,9 @@ static int rt6_fill_node(struct net *net,
 	if (iif) {
 #ifdef CONFIG_IPV6_MROUTE
 		if (ipv6_addr_is_multicast(&rt->rt6i_dst.addr)) {
-			int err = ip6mr_get_route(net, skb, rtm, nowait);
+			int err = ip6mr_get_route(net, skb, rtm, nowait,
+						  portid);
+
 			if (err <= 0) {
 				if (!nowait) {
 					if (err == 0)
@@ -2636,9 +2642,10 @@ static int inet6_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr* nlh)
 		fl6.flowi6_mark = nla_get_u32(tb[RTA_MARK]);
 
 	if (tb[RTA_UID])
-		fl6.flowi6_uid = nla_get_u32(tb[RTA_UID]);
+		fl6.flowi6_uid = make_kuid(current_user_ns(),
+					   nla_get_u32(tb[RTA_UID]));
 	else
-		fl6.flowi6_uid = (iif ? (uid_t) -1 : current_uid());
+		fl6.flowi6_uid = iif ? INVALID_UID : current_uid();
 
 	if (iif) {
 		struct net_device *dev;
@@ -2713,6 +2720,26 @@ void inet6_rt_notify(int event, struct rt6_info *rt, struct nl_info *info)
 		kfree_skb(skb);
 		goto errout;
 	}
+
+#ifdef CONFIG_HTC_NETWORK_MODIFY
+    if((rt->rt6i_dst.addr.s6_addr32[0] == 0x0) && (rt->rt6i_dst.addr.s6_addr32[1] == 0x0) &&
+       (rt->rt6i_dst.addr.s6_addr32[2] == 0x0) && (rt->rt6i_dst.addr.s6_addr32[3] == 0x0))  // default route
+    {
+        pr_info("[NET]%s: process:%s(pid:%d), parent:%s(pid:%d), rt->rt6i_dst.addr:%pI6, rt->rt6i_idev->dev->name:%s, rt->rt6i_gateway:%pI6, rt->rt6i_table->tb6_id:%d, event:%s\n",
+            __func__,
+            current->comm,
+            current->pid,
+            (current->parent) ? current->parent->comm : "(Invalid)",
+            (current->parent) ? current->parent->pid : 0,
+            &rt->rt6i_dst.addr,
+            rt->rt6i_idev->dev->name,
+            &rt->rt6i_gateway,
+            rt->rt6i_table->tb6_id,
+            (event == RTM_NEWROUTE) ? "RTM_NEWROUTE" : ((event == RTM_DELROUTE) ? "RTM_DELROUTE" : "UNKNOWN")
+            );
+    }
+#endif
+
 	rtnl_notify(skb, net, info->portid, RTNLGRP_IPV6_ROUTE,
 		    info->nlh, gfp_any());
 	return;
