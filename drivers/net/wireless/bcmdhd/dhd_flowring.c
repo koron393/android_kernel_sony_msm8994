@@ -1,13 +1,13 @@
 /*
  * Broadcom Dongle Host Driver (DHD), Flow ring specific code at top level
- * Copyright (C) 1999-2017, Broadcom Corporation
- * 
+ * Copyright (C) 1999-2014, Broadcom Corporation
+ *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
  * under the terms of the GNU General Public License version 2 (the "GPL"),
  * available at http://www.broadcom.com/licenses/GPLv2.php, with the
  * following added to such license:
- * 
+ *
  *      As a special exception, the copyright holders of this software give you
  * permission to link this software with independent modules, and to copy and
  * distribute the resulting executable under terms of your choice, provided that
@@ -15,7 +15,7 @@
  * the license of that module.  An independent module is a module which is not
  * derived from this software.  The special exception does not apply to any
  * modifications of the software.
- * 
+ *
  *      Notwithstanding the above, under no circumstances may you combine this
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
@@ -43,6 +43,9 @@
 #include <bcmmsgbuf.h>
 #include <dhd_pcie.h>
 
+static INLINE uint16 dhd_flowid_find(dhd_pub_t *dhdp, uint8 ifindex,
+                                     uint8 prio, char *sa, char *da);
+
 static INLINE uint16 dhd_flowid_alloc(dhd_pub_t *dhdp, uint8 ifindex,
                                       uint8 prio, char *sa, char *da);
 
@@ -53,7 +56,11 @@ int BCMFASTPATH dhd_flow_queue_overflow(flow_queue_t *queue, void *pkt);
 #define FLOW_QUEUE_PKT_NEXT(p)          PKTLINK(p)
 #define FLOW_QUEUE_PKT_SETNEXT(p, x)    PKTSETLINK((p), (x))
 
+#ifdef EAPOL_PKT_PRIO
+const uint8 prio2ac[8] = { 0, 1, 1, 0, 2, 2, 3, 7 };
+#else
 const uint8 prio2ac[8] = { 0, 1, 1, 0, 2, 2, 3, 3 };
+#endif /* EAPOL_PKT_PRIO  */
 const uint8 prio2tid[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 
 int BCMFASTPATH
@@ -163,11 +170,9 @@ dhd_flow_rings_init(dhd_pub_t *dhdp, uint32 num_flow_rings)
 	void * flowid_allocator;
 	flow_ring_table_t *flow_ring_table;
 	if_flow_lkup_t *if_flow_lkup = NULL;
-#ifdef PCIE_TX_DEFERRAL
-	uint32 count;
-#endif
 	void *lock = NULL;
 	unsigned long flags;
+
 
 	DHD_INFO(("%s\n", __FUNCTION__));
 
@@ -181,13 +186,14 @@ dhd_flow_rings_init(dhd_pub_t *dhdp, uint32 num_flow_rings)
 
 	/* Allocate a flow ring table, comprising of requested number of rings */
 	flow_ring_table_sz = (num_flow_rings * sizeof(flow_ring_node_t));
-	flow_ring_table = (flow_ring_table_t *)MALLOCZ(dhdp->osh, flow_ring_table_sz);
+	flow_ring_table = (flow_ring_table_t *)MALLOC(dhdp->osh, flow_ring_table_sz);
 	if (flow_ring_table == NULL) {
 		DHD_ERROR(("%s: flow ring table alloc failure\n", __FUNCTION__));
 		goto fail;
 	}
 
 	/* Initialize flow ring table state */
+	bzero((uchar *)flow_ring_table, flow_ring_table_sz);
 	for (idx = 0; idx < num_flow_rings; idx++) {
 		flow_ring_table[idx].status = FLOW_RING_STATUS_CLOSED;
 		flow_ring_table[idx].flowid = (uint16)idx;
@@ -207,7 +213,7 @@ dhd_flow_rings_init(dhd_pub_t *dhdp, uint32 num_flow_rings)
 	/* Allocate per interface hash table */
 	if_flow_lkup_sz = sizeof(if_flow_lkup_t) * DHD_MAX_IFS;
 	if_flow_lkup = (if_flow_lkup_t *)DHD_OS_PREALLOC(dhdp,
-		DHD_PREALLOC_IF_FLOW_LKUP, if_flow_lkup_sz);
+			DHD_PREALLOC_IF_FLOW_LKUP, if_flow_lkup_sz);
 	if (if_flow_lkup == NULL) {
 		DHD_ERROR(("%s: if flow lkup alloc failure\n", __FUNCTION__));
 		goto fail;
@@ -222,15 +228,6 @@ dhd_flow_rings_init(dhd_pub_t *dhdp, uint32 num_flow_rings)
 		for (hash_ix = 0; hash_ix < DHD_FLOWRING_HASH_SIZE; hash_ix++)
 			if_flow_lkup[idx].fl_hash[hash_ix] = NULL;
 	}
-
-#ifdef PCIE_TX_DEFERRAL
-	count = BITS_TO_LONGS(num_flow_rings);
-	dhdp->bus->delete_flow_map = kzalloc(count, GFP_ATOMIC);
-	if  (!dhdp->bus->delete_flow_map) {
-		DHD_ERROR(("%s: delete_flow_map alloc failure\n", __FUNCTION__));
-		goto fail;
-	}
-#endif
 
 	lock = dhd_os_spin_lock_init(dhdp->osh);
 	if (lock == NULL)
@@ -252,11 +249,9 @@ dhd_flow_rings_init(dhd_pub_t *dhdp, uint32 num_flow_rings)
 	return BCME_OK;
 
 fail:
+	if (lock != NULL)
+		dhd_os_spin_lock_deinit(dhdp->osh, lock);
 
-#ifdef PCIE_TX_DEFERRAL
-	if (dhdp->bus->delete_flow_map)
-		kfree(dhdp->bus->delete_flow_map);
-#endif
 	/* Destruct the per interface flow lkup table */
 	if (dhdp->if_flow_lkup != NULL) {
 		DHD_OS_PREFREE(dhdp, if_flow_lkup, if_flow_lkup_sz);
@@ -300,9 +295,7 @@ void dhd_flow_rings_deinit(dhd_pub_t *dhdp)
 			ASSERT(flow_queue_empty(&flow_ring_table[idx].queue));
 
 			/* Deinit flow ring queue locks before destroying flow ring table */
-			if (flow_ring_table[idx].lock != NULL) {
-				dhd_os_spin_lock_deinit(dhdp->osh, flow_ring_table[idx].lock);
-			}
+			dhd_os_spin_lock_deinit(dhdp->osh, flow_ring_table[idx].lock);
 			flow_ring_table[idx].lock = NULL;
 		}
 
@@ -316,15 +309,10 @@ void dhd_flow_rings_deinit(dhd_pub_t *dhdp)
 	/* Destruct the per interface flow lkup table */
 	if (dhdp->if_flow_lkup != NULL) {
 		if_flow_lkup_sz = sizeof(if_flow_lkup_t) * DHD_MAX_IFS;
-		bzero(dhdp->if_flow_lkup, sizeof(if_flow_lkup_sz));
+		memset(dhdp->if_flow_lkup, 0, sizeof(if_flow_lkup_sz));
 		DHD_OS_PREFREE(dhdp, dhdp->if_flow_lkup, if_flow_lkup_sz);
 		dhdp->if_flow_lkup = NULL;
 	}
-
-#ifdef PCIE_TX_DEFERRAL
-	if (dhdp->bus->delete_flow_map)
-		kfree(dhdp->bus->delete_flow_map);
-#endif
 
 	/* Destruct the flowid allocator */
 	if (dhdp->flowid_allocator != NULL)
@@ -334,10 +322,8 @@ void dhd_flow_rings_deinit(dhd_pub_t *dhdp)
 	lock = dhdp->flowid_lock;
 	dhdp->flowid_lock = NULL;
 
-	if (lock) {
-		DHD_FLOWID_UNLOCK(lock, flags);
-		dhd_os_spin_lock_deinit(dhdp->osh, lock);
-	}
+	DHD_FLOWID_UNLOCK(lock, flags);
+	dhd_os_spin_lock_deinit(dhdp->osh, lock);
 }
 
 uint8
@@ -363,7 +349,7 @@ bool is_tdls_destination(dhd_pub_t *dhdp, uint8 *da)
 #endif /* WLTDLS */
 
 /* For a given interface, search the hash table for a matching flow */
-uint16
+static INLINE uint16
 dhd_flowid_find(dhd_pub_t *dhdp, uint8 ifindex, uint8 prio, char *sa, char *da)
 {
 	int hash;
@@ -435,6 +421,10 @@ dhd_flowid_alloc(dhd_pub_t *dhdp, uint8 ifindex, uint8 prio, char *sa, char *da)
 	unsigned long flags;
 
 	fl_hash_node = (flow_hash_info_t *) MALLOC(dhdp->osh, sizeof(flow_hash_info_t));
+	if (fl_hash_node == NULL) {
+		DHD_ERROR(("%s: fl_hash_node alloc failed  \n", __FUNCTION__));
+		return FLOWID_INVALID;
+	}
 	memcpy(fl_hash_node->flow_info.da, da, sizeof(fl_hash_node->flow_info.da));
 
 	DHD_FLOWID_LOCK(dhdp->flowid_lock, flags);
@@ -540,6 +530,7 @@ dhd_flowid_lookup(dhd_pub_t *dhdp, uint8 ifindex,
 		*flowid = id;
 		return BCME_OK;
 	}
+
 	/* Init Flow info */
 	memcpy(flow_ring_node->flow_info.sa, sa, sizeof(flow_ring_node->flow_info.sa));
 	memcpy(flow_ring_node->flow_info.da, da, sizeof(flow_ring_node->flow_info.da));
@@ -643,6 +634,7 @@ dhd_flowid_free(dhd_pub_t *dhdp, uint8 ifindex, uint16 flowid)
 			}
 		}
 	}
+
 
 	DHD_FLOWID_UNLOCK(dhdp->flowid_lock, flags);
 	DHD_ERROR(("%s: could not free flow ring hash entry flowid %d\n",
@@ -781,7 +773,7 @@ int dhd_update_flow_prio_map(dhd_pub_t *dhdp, uint8 map)
 	uint16 flowid;
 	flow_ring_node_t *flow_ring_node;
 
-	if (map > DHD_FLOW_PRIO_TID_MAP)
+	if (map > DHD_FLOW_PRIO_LLR_MAP)
 		return BCME_BADOPTION;
 
 	/* Check if we need to change prio map */
@@ -811,7 +803,7 @@ int dhd_update_flow_prio_map(dhd_pub_t *dhdp, uint8 map)
 /* Set/Get flwo ring priority map */
 int dhd_flow_prio_map(dhd_pub_t *dhd, uint8 *map, bool set)
 {
-	uint8 iovbuf[24] = {0};
+	uint8 iovbuf[24];
 	if (!set) {
 		bcm_mkiovar("bus:fl_prio_map", NULL, 0, (char*)iovbuf, sizeof(iovbuf));
 		if (dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iovbuf, sizeof(iovbuf), FALSE, 0) < 0) {

@@ -1,7 +1,7 @@
 /*
  * Common function shared by Linux WEXT, cfg80211 and p2p drivers
  *
- * Copyright (C) 1999-2017, Broadcom Corporation
+ * Copyright (C) 1999-2014, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wldev_common.c 701287 2017-05-24 10:33:19Z $
+ * $Id: wldev_common.c 467328 2014-04-03 01:23:40Z $
  */
 
 #include <osl.h>
@@ -47,7 +47,7 @@
 
 extern int dhd_ioctl_entry_local(struct net_device *net, wl_ioctl_t *ioc, int cmd);
 
-static s32 wldev_ioctl(
+s32 wldev_ioctl(
 	struct net_device *dev, u32 cmd, void *arg, u32 len, u32 set)
 {
 	s32 ret = 0;
@@ -63,33 +63,6 @@ static s32 wldev_ioctl(
 	ret = dhd_ioctl_entry_local(dev, &ioc, cmd);
 
 	return ret;
-}
-
-/*
-SET commands :
-cast buffer to non-const  and call the GET function
-*/
-
-s32 wldev_ioctl_set(
-	struct net_device *dev, u32 cmd, const void *arg, u32 len)
-{
-
-#if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wcast-qual"
-#endif
-	return wldev_ioctl(dev, cmd, (void *)arg, len, 1);
-#if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-
-}
-
-
-s32 wldev_ioctl_get(
-	struct net_device *dev, u32 cmd, void *arg, u32 len)
-{
-	return wldev_ioctl(dev, cmd, (void *)arg, len, 0);
 }
 
 /* Format a iovar buffer, not bsscfg indexed. The bsscfg index will be
@@ -114,24 +87,8 @@ s32 wldev_iovar_getbuf(
 	if (buf_sync) {
 		mutex_lock(buf_sync);
 	}
-
-	if (buf && (buflen > 0)) {
-		/* initialize the response buffer */
-		memset(buf, 0, buflen);
-	} else {
-		ret = BCME_BADARG;
-		goto exit;
-	}
-
-	ret = wldev_mkiovar(iovar_name, param, paramlen, buf, buflen);
-
-	if (!ret) {
-		ret = BCME_BUFTOOSHORT;
-		goto exit;
-	}
-	ret = wldev_ioctl_get(dev, WLC_GET_VAR, buf, buflen);
-
-exit:
+	wldev_mkiovar(iovar_name, param, paramlen, buf, buflen);
+	ret = wldev_ioctl(dev, WLC_GET_VAR, buf, buflen, FALSE);
 	if (buf_sync)
 		mutex_unlock(buf_sync);
 	return ret;
@@ -147,20 +104,12 @@ s32 wldev_iovar_setbuf(
 	if (buf_sync) {
 		mutex_lock(buf_sync);
 	}
-	if (buf && (buflen > 0)) {
-		/* initialize the response buffer */
-		memset(buf, 0, buflen);
-	} else {
-		ret = BCME_BADARG;
-		goto exit;
-	}
 	iovar_len = wldev_mkiovar(iovar_name, param, paramlen, buf, buflen);
 	if (iovar_len > 0)
-		ret = wldev_ioctl_set(dev, WLC_SET_VAR, buf, iovar_len);
+		ret = wldev_ioctl(dev, WLC_SET_VAR, buf, iovar_len, TRUE);
 	else
 		ret = BCME_BUFTOOSHORT;
 
-exit:
 	if (buf_sync)
 		mutex_unlock(buf_sync);
 	return ret;
@@ -208,11 +157,6 @@ s32 wldev_mkiovar_bsscfg(
 	u32 prefixlen;
 	u32 namelen;
 	u32 iolen;
-
-	/* initialize buffer */
-	if (!iovar_buf || buflen == 0)
-		return BCME_BADARG;
-	memset(iovar_buf, 0, buflen);
 
 	if (bssidx == 0) {
 		return wldev_mkiovar((s8*)iovar_name, (s8 *)param, paramlen,
@@ -262,7 +206,7 @@ s32 wldev_iovar_getbuf_bsscfg(
 	}
 
 	wldev_mkiovar_bsscfg(iovar_name, param, paramlen, buf, buflen, bsscfg_idx);
-	ret = wldev_ioctl_get(dev, WLC_GET_VAR, buf, buflen);
+	ret = wldev_ioctl(dev, WLC_GET_VAR, buf, buflen, FALSE);
 	if (buf_sync) {
 		mutex_unlock(buf_sync);
 	}
@@ -281,7 +225,7 @@ s32 wldev_iovar_setbuf_bsscfg(
 	}
 	iovar_len = wldev_mkiovar_bsscfg(iovar_name, param, paramlen, buf, buflen, bsscfg_idx);
 	if (iovar_len > 0)
-		ret = wldev_ioctl_set(dev, WLC_SET_VAR, buf, iovar_len);
+		ret = wldev_ioctl(dev, WLC_SET_VAR, buf, iovar_len, TRUE);
 	else {
 		ret = BCME_BUFTOOSHORT;
 	}
@@ -298,7 +242,7 @@ s32 wldev_iovar_setint_bsscfg(
 	s8 iovar_buf[WLC_IOCTL_SMLEN];
 
 	val = htod32(val);
-
+	memset(iovar_buf, 0, sizeof(iovar_buf));
 	return wldev_iovar_setbuf_bsscfg(dev, iovar, &val, sizeof(val), iovar_buf,
 		sizeof(iovar_buf), bssidx, NULL);
 }
@@ -328,8 +272,7 @@ int wldev_get_link_speed(
 
 	if (!plink_speed)
 		return -ENOMEM;
-	*plink_speed = 0;
-	error = wldev_ioctl_get(dev, WLC_GET_RATE, plink_speed, sizeof(int));
+	error = wldev_ioctl(dev, WLC_GET_RATE, plink_speed, sizeof(int), 0);
 	if (unlikely(error))
 		return error;
 
@@ -339,18 +282,20 @@ int wldev_get_link_speed(
 }
 
 int wldev_get_rssi(
-	struct net_device *dev, scb_val_t *scb_val)
+	struct net_device *dev, int *prssi)
 {
+	scb_val_t scb_val;
 	int error;
 
-	if (!scb_val)
+	if (!prssi)
 		return -ENOMEM;
+	bzero(&scb_val, sizeof(scb_val_t));
 
-	memset(scb_val, 0, sizeof(scb_val_t));
-	error = wldev_ioctl_get(dev, WLC_GET_RSSI, scb_val, sizeof(scb_val_t));
+	error = wldev_ioctl(dev, WLC_GET_RSSI, &scb_val, sizeof(scb_val_t), 0);
 	if (unlikely(error))
 		return error;
 
+	*prssi = dtoh32(scb_val.val);
 	return error;
 }
 
@@ -361,8 +306,7 @@ int wldev_get_ssid(
 
 	if (!pssid)
 		return -ENOMEM;
-	memset(pssid, 0, sizeof(wlc_ssid_t));
-	error = wldev_ioctl_get(dev, WLC_GET_SSID, pssid, sizeof(wlc_ssid_t));
+	error = wldev_ioctl(dev, WLC_GET_SSID, pssid, sizeof(wlc_ssid_t), 0);
 	if (unlikely(error))
 		return error;
 	pssid->SSID_len = dtoh32(pssid->SSID_len);
@@ -374,8 +318,7 @@ int wldev_get_band(
 {
 	int error;
 
-	*pband = 0;
-	error = wldev_ioctl_get(dev, WLC_GET_BAND, pband, sizeof(uint));
+	error = wldev_ioctl(dev, WLC_GET_BAND, pband, sizeof(uint), 0);
 	return error;
 }
 
@@ -385,87 +328,13 @@ int wldev_set_band(
 	int error = -1;
 
 	if ((band == WLC_BAND_AUTO) || (band == WLC_BAND_5G) || (band == WLC_BAND_2G)) {
-		error = wldev_ioctl_set(dev, WLC_SET_BAND, &band, sizeof(band));
+		error = wldev_ioctl(dev, WLC_SET_BAND, &band, sizeof(band), true);
 		if (!error)
 			dhd_bus_band_set(dev, band);
 	}
 	return error;
 }
 
-int wldev_get_datarate(struct net_device *dev, int *datarate)
-{
-	int error = 0;
-
-	error = wldev_ioctl_get(dev, WLC_GET_RATE, datarate, sizeof(int));
-	if (error) {
-		return -1;
-	} else {
-		*datarate = dtoh32(*datarate);
-	}
-
-	return error;
-}
-
-extern chanspec_t
-wl_chspec_driver_to_host(chanspec_t chanspec);
-#define WL_EXTRA_BUF_MAX 2048
-int wldev_get_mode(
-	struct net_device *dev, uint8 *cap)
-{
-	int error = 0;
-	int chanspec = 0;
-	uint16 band = 0;
-	uint16 bandwidth = 0;
-	wl_bss_info_t *bss = NULL;
-	char* buf = NULL;
-
-	buf =  kzalloc(WL_EXTRA_BUF_MAX, GFP_KERNEL);
-	if (!buf) {
-		WLDEV_ERROR(("%s:NOMEM\n", __FUNCTION__));
-		return -ENOMEM;
-	}
-
-	*(u32*) buf = htod32(WL_EXTRA_BUF_MAX);
-	error = wldev_ioctl_get(dev, WLC_GET_BSS_INFO, (void*)buf, WL_EXTRA_BUF_MAX);
-	if (error) {
-		WLDEV_ERROR(("%s:failed:%d\n", __FUNCTION__, error));
-		kfree(buf);
-		buf = NULL;
-		return error;
-	}
-	bss = (struct  wl_bss_info *)(buf + 4);
-	chanspec = wl_chspec_driver_to_host(bss->chanspec);
-
-	band = chanspec & WL_CHANSPEC_BAND_MASK;
-	bandwidth = chanspec & WL_CHANSPEC_BW_MASK;
-
-	if (band == WL_CHANSPEC_BAND_2G) {
-		if (bss->n_cap)
-			strcpy(cap, "n");
-		else
-			strcpy(cap, "bg");
-	} else if (band == WL_CHANSPEC_BAND_5G) {
-		if (bandwidth == WL_CHANSPEC_BW_80)
-			strcpy(cap, "ac");
-		else if ((bandwidth == WL_CHANSPEC_BW_40) || (bandwidth == WL_CHANSPEC_BW_20)) {
-			if ((bss->nbss_cap & 0xf00) && (bss->n_cap))
-				strcpy(cap, "n|ac");
-			else if (bss->n_cap)
-				strcpy(cap, "n");
-			else if (bss->vht_cap)
-				strcpy(cap, "ac");
-			else
-				strcpy(cap, "a");
-		} else {
-			WLDEV_ERROR(("%s:Mode get failed\n", __FUNCTION__));
-			error = BCME_ERROR;
-		}
-
-	}
-	kfree(buf);
-	buf = NULL;
-	return error;
-}
 int wldev_set_country(
 	struct net_device *dev, char *country_code, bool notify, bool user_enforced)
 {
@@ -484,12 +353,12 @@ int wldev_set_country(
 		return error;
 	}
 
-	if ((error < 0) ||
+	if ((error < 0) || dhd_force_country_change(dev) ||
 	    (strncmp(country_code, cspec.country_abbrev, WLC_CNTRY_BUF_SZ) != 0)) {
 
 		if (user_enforced) {
 			bzero(&scbval, sizeof(scb_val_t));
-			error = wldev_ioctl_set(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t));
+			error = wldev_ioctl(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t), true);
 			if (error < 0) {
 				WLDEV_ERROR(("%s: set country failed due to Disassoc error %d\n",
 					__FUNCTION__, error));

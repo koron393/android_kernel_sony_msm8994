@@ -327,7 +327,7 @@ config BCMDHD_PCIE
 
 config BROADCOM_WIFI_RESERVED_MEM
 	bool "BROADCOM Reserved memory for wifi device"
-	depends on SOMC_WIFI_CONTROL
+	depends on BCMDHD
 	default n
 	---help---
 	  This is a configuration for broadcom WLAN driver.
