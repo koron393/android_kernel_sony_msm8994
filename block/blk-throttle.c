@@ -194,7 +194,7 @@ alloc_stats:
 		stats_cpu = alloc_percpu(struct tg_stats_cpu);
 		if (!stats_cpu) {
 			/* allocation failed, try again after some time */
-			schedule_delayed_work(dwork, msecs_to_jiffies(10));
+			queue_delayed_work(system_power_efficient_wq, dwork, msecs_to_jiffies(10));
 			return;
 		}
 	}
@@ -237,7 +237,7 @@ static void throtl_pd_init(struct blkcg_gq *blkg)
 	 */
 	spin_lock_irqsave(&tg_stats_alloc_lock, flags);
 	list_add(&tg->stats_alloc_node, &tg_stats_alloc_list);
-	schedule_delayed_work(&tg_stats_alloc_work, 0);
+	queue_delayed_work(system_power_efficient_wq, &tg_stats_alloc_work, 0);
 	spin_unlock_irqrestore(&tg_stats_alloc_lock, flags);
 }
 
