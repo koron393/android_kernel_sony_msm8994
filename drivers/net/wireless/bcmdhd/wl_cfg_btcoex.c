@@ -304,7 +304,7 @@ static void wl_cfg80211_bt_handler(struct work_struct *work)
 			WL_TRACE(("bt_dhcp stm: started \n"));
 
 			btcx_inf->bt_state = BT_DHCP_OPPR_WIN;
-			schedule_delayed_work(&btcx_inf->work,
+			queue_delayed_work(system_power_efficient_wq, &btcx_inf->work,
 				msecs_to_jiffies(BT_DHCP_OPPR_WIN_TIME));
 			break;
 
@@ -315,7 +315,7 @@ static void wl_cfg80211_bt_handler(struct work_struct *work)
 			WL_TRACE(("DHCP T1:%d expired\n", BT_DHCP_OPPR_WIN_TIME));
 			wl_cfg80211_bt_setflag(btcx_inf, TRUE);
 			btcx_inf->bt_state = BT_DHCP_FLAG_FORCE_TIMEOUT;
-			schedule_delayed_work(&btcx_inf->work,
+			queue_delayed_work(system_power_efficient_wq, &btcx_inf->work,
 				msecs_to_jiffies(BT_DHCP_FLAG_FORCE_TIME));
 			break;
 
