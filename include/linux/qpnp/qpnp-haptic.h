@@ -16,10 +16,10 @@
 int qpnp_hap_play_byte(u8 data, bool on);
 void qpnp_disable_haptics(bool disable);
 #else
-int qpnp_hap_play_byte(u8 data, bool on)
+static inline int qpnp_hap_play_byte(u8 data, bool on)
 {
 	return 0;
 }
-void qpnp_disable_haptics(bool disable) { }
+static inline void qpnp_disable_haptics(bool disable) { }
 #endif
 #endif
